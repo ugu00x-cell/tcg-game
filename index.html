@@ -47,6 +47,10 @@ body {
   box-shadow: 0 0 12px #ff4444;
   animation: pulse-red 1.2s infinite;
 }
+.card.summoning-sick {
+  opacity: 0.5;
+  filter: grayscale(60%);
+}
 .card.face-down {
   background: linear-gradient(135deg, #1a3a6e, #0d2040) !important;
   border-color: #2a5a9e;
@@ -446,6 +450,7 @@ function startGame() {
     selectedHandUid: null,   // 手札で選択中のカードUID
     selectedAttackerUid: null, // 攻撃側に選択中のモンスターUID
     attackedUids: [],          // このターンに攻撃済みのUID一覧
+    summonedUids: [],          // このターンに召喚したUID（召喚酔い：召喚ターンは攻撃不可）
     playerFirstTurnDone: false, // プレイヤーが最初のターンを終えたか（ボタン制御用）
     cpuFirstTurnDone: false,    // CPUが最初のターンを終えたか（攻撃スキップ制御用）
     completedTurns: 0,          // 両者合計のターン完了数（3以上で勝敗判定を有効化）
@@ -500,8 +505,12 @@ function clickBattleCard(uid, who) {
 
   if (G.phase === 'battle') {
     if (who === 'player') {
-      // 自分のモンスターを攻撃者に選択
+      // 自分のモンスターを攻撃者に選択（攻撃済み・召喚酔いは選択不可）
       if (G.attackedUids.includes(uid)) return;
+      if (G.summonedUids.includes(uid)) {
+        addLog('⚠️ 召喚したターンは攻撃できません');
+        return;
+      }
       G.selectedAttackerUid = uid;
       addLog('攻撃対象を選択（CPU側モンスターをクリック）');
       render();
@@ -544,6 +553,7 @@ function doSummon() {
   G.player.hand.splice(idx, 1);
   G.player.battlefield.push({ ...card });
   G.player.manaUsed += card.cost;
+  G.summonedUids.push(card.uid); // 召喚酔い登録
   addLog(`✨ ${card.name}（ATK:${card.atk}）を召喚！`);
   G.selectedHandUid = null;
   render();
@@ -650,6 +660,7 @@ function switchTurn(who) {
   G.selectedHandUid = null;
   G.selectedAttackerUid = null;
   G.attackedUids = [];
+  G.summonedUids = []; // ターンが変わったら召喚酔いリストをリセット
   G[who].manaUsed = 0;
 
   const name = who === 'player' ? 'あなた' : 'CPU';
@@ -733,6 +744,7 @@ function cpuMainPhase() {
       cpu.hand.splice(cpu.hand.findIndex(c => c.uid === card.uid), 1);
       cpu.battlefield.push({ ...card });
       cpu.manaUsed += card.cost;
+      G.summonedUids.push(card.uid); // 召喚酔い登録
       addLog(`CPU: ✨ ${card.name}（ATK:${card.atk}）を召喚！`);
       loop = true;
     }
@@ -756,6 +768,7 @@ function cpuBattlePhase() {
   for (const atk of attackers) {
     if (G.player.battlefield.length === 0) break;
     if (G.attackedUids.includes(atk.uid)) continue;
+    if (G.summonedUids.includes(atk.uid)) continue; // 召喚酔いはスキップ
 
     // 自分より弱い相手（確実に倒せる）を探す
     const beatable = [...G.player.battlefield]
@@ -849,9 +862,16 @@ function renderZone(zoneId, cards, who, faceDown) {
       if (card.uid === G.selectedHandUid)     div.classList.add('selected');
       if (card.uid === G.selectedAttackerUid) div.classList.add('selected');
 
-      // 攻撃可能ハイライト
+      // 召喚酔い中は薄く表示
+      if (G.summonedUids.includes(card.uid)) {
+        div.classList.add('summoning-sick');
+      }
+
+      // 攻撃可能ハイライト（召喚酔い中は除く）
       if (who === 'player' && G.phase === 'battle' && G.currentPlayer === 'player'
-          && zoneId === 'player-battlefield' && !G.attackedUids.includes(card.uid)) {
+          && zoneId === 'player-battlefield'
+          && !G.attackedUids.includes(card.uid)
+          && !G.summonedUids.includes(card.uid)) {
         div.classList.add('can-attack');
       }
 
